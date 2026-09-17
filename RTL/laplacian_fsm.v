@@ -34,19 +34,19 @@ module laplacian_fsm #(
         RP7    = 4'd7,
         RP8    = 4'd8,
         RP9    = 4'd9,
-        CONV   = 4'd10,
-        INCR_J = 4'd11;
+        CONV   = 4'd10;
+       // INCR_J = 4'd11;
 
     reg [3:0] state;
     reg [7:0] i, j;
 
-    // combinational outputs 
-    assign clear_acc_o   = (state==IDLE) | (state==INCR_J);
+    // combinational outputs
+    assign clear_acc_o   = (state==IDLE) | (state==S0);
     assign accum_en_o    = ((state==RP2)|(state==RP4)|(state==RP5)|
                             (state==RP6)|(state==RP8)) & wb_ack_i;
     assign kernel_const_o = (state==RP5); // RP5 (+4), everything else is -1
 
-    // addr 
+    // addr
     always @(*) begin
         case (state)
             S0  : begin addr_i_o=$signed({2'b0,i})-10'sd1; addr_j_o=$signed({2'b0,j})-10'sd1; end
@@ -63,7 +63,7 @@ module laplacian_fsm #(
         endcase
     end
 
-    always @(posedge clk or posedge rst) begin
+    always @(posedge clk) begin //synchronous reset
         if (rst) begin
             state    <= IDLE;
             i        <= 8'd0;
@@ -80,31 +80,29 @@ module laplacian_fsm #(
                     if (start) begin i<=8'd0; j<=8'd0; state<=S0; end
                 end
 
-                // zero-coeff skip states, strobe is asserted
-                S0:  begin wb_cyc_o<=1; wb_stb_o<=1; wb_we_o<=0; state<=RP2; end
-                RP3: begin wb_cyc_o<=1; wb_stb_o<=1; wb_we_o<=0; state<=RP4; end
-                RP7: begin wb_cyc_o<=1; wb_stb_o<=1; wb_we_o<=0; state<=RP8; end
-                RP9: begin wb_cyc_o<=1; wb_stb_o<=1; wb_we_o<=1; state<=CONV; end
+                // zero-coeff skip states, strobe is pre asserted for the next state since these get skipped anyways
+                S0:  begin wb_cyc_o<=1; wb_stb_o<=1; state<=RP2; end
+                RP3: begin wb_stb_o<=1; state<=RP4; end
+                RP7: begin wb_stb_o<=1; state<=RP8; end
+                RP9: begin wb_stb_o<=1; wb_we_o<=1; state<=CONV; end
 
                 // 1 states, strobe is held low
                 RP2: if (wb_ack_i) begin wb_stb_o<=0;            state<=RP3; end
-                RP4: if (wb_ack_i) begin                          state<=RP5; end 
-                RP5: if (wb_ack_i) begin                          state<=RP6; end 
+                RP4: if (wb_ack_i) begin                          state<=RP5; end
+                RP5: if (wb_ack_i) begin                          state<=RP6; end
                 RP6: if (wb_ack_i) begin wb_stb_o<=0;            state<=RP7; end
                 RP8: if (wb_ack_i) begin wb_stb_o<=0;            state<=RP9; end
 
-              
+                //writing the calculated value back to the RAM
                 CONV: if (wb_ack_i) begin
-                    wb_cyc_o<=0; wb_stb_o<=0; wb_we_o<=0; state<=INCR_J;
-                end
+                    wb_cyc_o<=0; wb_stb_o<=0; wb_we_o<=0;
 
-                INCR_J: begin
-                    if (j < (IMG_W-1)) begin
-                        j<=j+1'b1; state<=S0;
-                    end else begin
-                        j<=8'd0;
+                        if (j < (IMG_W-1)) begin
+                            j<=j+1'b1; state<=S0;
+                        end else begin
+                            j<=8'd0;
                         if (i < (IMG_H-1)) begin i<=i+1'b1; state<=S0; end
-                        else begin done<=1'b1; state<=IDLE; end
+                        else begin wb_cyc_o <= 0; done<=1'b1; state<=IDLE; end
                     end
                 end
 
