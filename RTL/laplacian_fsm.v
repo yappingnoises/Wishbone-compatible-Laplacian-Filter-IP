@@ -1,5 +1,5 @@
 `timescale 1ns / 1ps
-//67 i lost the game, we are no strangers to love meow hahahah i am going insane
+
 
 module laplacian_fsm #(
     parameter IMG_W = 256,
